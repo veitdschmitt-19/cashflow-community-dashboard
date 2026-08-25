@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Cashflow Community Dashboard (Live)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#0D1117;
+    --surface:#161B22;
+    --surface-2:#1C2330;
+    --border:#2A313C;
+    --text:#C9D1D9;
+    --text-muted:#8B949E;
+    --accent:#3FB68B;
+    --accent-dim:#1F5F49;
+    --amber:#D9A441;
+    --red:#D9695F;
+    --blue:#5C8DE8;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    padding:0 0 64px;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px;}
+
+  .dash-header{padding:28px 24px 0;max-width:980px;margin:0 auto;}
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;letter-spacing:0.12em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 6px;
+  }
+  h1{font-size:26px;font-weight:600;margin:0 0 4px;color:#fff;}
+  .sub{color:var(--text-muted);font-size:14px;margin:0 0 20px;}
+
+  .tabbar{
+    display:flex;gap:4px;border-bottom:1px solid var(--border);
+    margin-bottom:28px;position:sticky;top:0;background:var(--bg);
+    z-index:10;padding-top:4px;
+  }
+  .tabbtn{
+    font-family:'Inter',sans-serif;font-size:13px;font-weight:500;
+    color:var(--text-muted);background:none;border:none;padding:12px 18px;
+    cursor:pointer;border-bottom:2px solid transparent;
+    transition:color .15s, border-color .15s;
+  }
+  .tabbtn:hover{color:var(--text);}
+  .tabbtn.active{color:#fff;border-bottom-color:var(--accent);}
+  .refresh-hint{
+    margin-left:auto;display:flex;align-items:center;gap:6px;
+    font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);
+    padding-right:4px;
+  }
+  .refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+  .tabpanel{display:none;}
+  .tabpanel.active{display:block;}
+
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
+  .cards.cols4{grid-template-columns:repeat(4,1fr);}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+  .card .label{font-size:12px;color:var(--text-muted);margin-bottom:8px;}
+  .card .value{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:#fff;}
+  .card .value.accent{color:var(--accent);}
+  .card .value.amber{color:var(--amber);}
+  .card .value.blue{color:var(--blue);}
+  .card .value.muted{color:var(--text-muted);}
+
+  section{margin-bottom:40px;}
+  h2{font-size:15px;font-weight:600;color:#fff;margin:0 0 4px;display:flex;align-items:center;gap:8px;}
+  h2 .tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);font-weight:400;}
+  p.hint{color:var(--text-muted);font-size:13px;margin:0 0 18px;}
+
+  .barlist{display:flex;flex-direction:column;gap:10px;}
+  .barrow{display:grid;grid-template-columns:70px 1fr 96px;align-items:center;gap:12px;}
+  .barrow .name{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text);font-weight:500;}
+  .barrow .track{background:var(--surface-2);border-radius:5px;height:20px;position:relative;overflow:hidden;border:1px solid var(--border);display:flex;}
+  .barrow .seg{height:100%;}
+  .barrow .seg.premium{background:var(--accent);}
+  .barrow .seg.invest-pos{background:var(--amber);}
+  .barrow .seg.overnight{background:var(--blue);}
+  .barrow .val{font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;color:var(--text);}
+  .barrow .loss-badge{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--red);white-space:nowrap;}
+  .legend{display:flex;gap:18px;margin:0 0 16px;flex-wrap:wrap;}
+  .legend .item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);}
+  .legend .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;}
+  .legend .swatch.premium{background:var(--accent);}
+  .legend .swatch.invest{background:var(--amber);}
+  .legend .swatch.overnight{background:var(--blue);}
+  .legend .swatch.loss{background:var(--red);}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;padding:8px 10px;border-bottom:1px solid var(--border);}
+  td{padding:9px 10px;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;}
+  td.name{font-family:'Inter',sans-serif;color:var(--text-muted);}
+  td.num{text-align:right;}
+  tr:hover td{background:var(--surface);}
+
+  .chartbox{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 20px;margin-bottom:32px;}
+  .layout-allok{display:grid;grid-template-columns:300px 1fr;gap:28px;align-items:start;}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block;flex-shrink:0;}
+  td.name-flex{font-family:'Inter',sans-serif;color:var(--text);display:flex;align-items:center;gap:8px;}
+  @media(max-width:720px){.layout-allok{grid-template-columns:1fr;}}
+
+  .disclaimer{margin-top:36px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:16px;line-height:1.6;}
+  @media(max-width:640px){
+    .cards{grid-template-columns:repeat(2,1fr);}
+    .barrow{grid-template-columns:56px 1fr 76px;}
+    .tabbar{overflow-x:auto;}
+    .refresh-hint{display:none;}
+  }
+
+  .status-banner{
+    display:flex;align-items:center;gap:10px;
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:14px 18px;margin-bottom:20px;font-size:13px;color:var(--text-muted);
+  }
+  .status-banner .spinner{
+    width:14px;height:14px;border-radius:50%;
+    border:2px solid var(--border);border-top-color:var(--accent);
+    animation:spin 0.8s linear infinite;flex-shrink:0;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .status-banner.error{border-color:var(--red);color:var(--red);}
+  .empty-hint{color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center;}
+</style>
+</head>
+<body>
+
+<div class="dash-header">
+  <p class="eyebrow">Cashflow Community · Live-Demo-Dashboard</p>
+  <h1>Cashflow-Trading Dashboard (Live)</h1>
+  <p class="sub">Liest bei jedem Seitenaufruf live aus dem öffentlichen „Muster Trading Journal" der Cashflow Community – keine Anmeldung nötig, keine manuelle Aktualisierung.</p>
+</div>
+
+<div class="wrap">
+  <div class="tabbar">
+    <button class="tabbtn active" data-tab="tab-premium">Prämieneinnahmen</button>
+    <button class="tabbtn" data-tab="tab-allokation">Kapitalallokation</button>
+    <button class="tabbtn" data-tab="tab-kapital">Kapitalentwicklung</button>
+    <span class="refresh-hint"><span class="refresh-dot"></span>Live aus Google Sheet</span>
+  </div>
+
+  <div id="globalStatus"></div>
+
+  <!-- ============ TAB 1: PRÄMIENEINNAHMEN ============ -->
+  <div class="tabpanel active" id="tab-premium">
+    <div class="cards" id="premiumCards"></div>
+
+    <p class="legend">
+      <span class="item"><span class="swatch premium"></span>Optionsprämien (netto, ggf. Verluste bereits verrechnet)</span>
+      <span class="item"><span class="swatch invest"></span>Investment-Gewinn (Andienung)</span>
+      <span class="item"><span class="swatch loss"></span>Investment-Verlust größer als Prämie</span>
+      <span class="item"><span class="swatch overnight"></span>Overnight/Day-Trade</span>
+    </p>
+
+    <section>
+      <h2>Einnahmen pro Aktie/ETF <span class="tag">netto, absteigend sortiert</span></h2>
+      <p class="hint">Ist ein Andienungsverlust kleiner als die dafür erhaltene Prämie, wird er direkt verrechnet und nur die Restprämie ausgewiesen.</p>
+      <div class="barlist" id="stockBars"></div>
+    </section>
+
+    <section>
+      <h2>Einnahmen pro Sektor <span class="tag">netto, absteigend sortiert</span></h2>
+      <div class="barlist" id="sectorBars"></div>
+    </section>
+
+    <section>
+      <h2>Detailtabelle</h2>
+      <table>
+        <thead>
+          <tr><th>Symbol</th><th>Sektor</th><th style="text-align:right">Trades</th><th style="text-align:right">Prämie (netto/verrechnet)</th><th style="text-align:right">Investment G/V</th><th style="text-align:right">Overnight</th><th style="text-align:right">Gesamt</th></tr>
+        </thead>
+        <tbody id="tableBodyPremium"></tbody>
+      </table>
+    </section>
+
+    <div class="disclaimer">
+      Hinweis: Werte werden bei jedem Seitenaufruf live aus dem öffentlichen Google Sheet „Monthly und Weekly Trading Journal Cashflow Community 2.0" berechnet (Tab „📅Monthly &amp; Weekly" für Prämien &amp; Andienungs-Gewinne/-Verluste, Tab „🌅🌃Day &amp; Overnight" für Overnight-Trades, abgeglichen mit „🏭 Symbol-Name-Sektor"). Ist ein Investment-Verlust aus einer Andienung kleiner als die dafür erhaltene Prämie, wird er direkt verrechnet und nur die verbleibende Restprämie ausgewiesen. Gesamt = Optionsprämie (netto nach Gebühren/Rückkäufen) + Investment-Gewinn/-Verlust bei eingebuchten Calls + Gewinn aus Overnight/Day-Trades. Keine Anlageberatung – reine Auswertung der in diesem Community-Sheet erfassten Trades.
+    </div>
+  </div>
+
+  <!-- ============ TAB 2: KAPITALALLOKATION NACH SEKTOR ============ -->
+  <div class="tabpanel" id="tab-allokation">
+    <div class="cards cols4" id="allokationCards"></div>
+
+    <div class="layout-allok">
+      <div class="chartbox" style="margin-bottom:0;">
+        <canvas id="sectorPie" width="300" height="300"></canvas>
+      </div>
+      <div>
+        <table>
+          <thead>
+            <tr><th>Sektor</th><th style="text-align:right">Aktien (AK)</th><th style="text-align:right">CSP-Rücklage</th><th style="text-align:right">Gesamt</th><th style="text-align:right">Anteil</th></tr>
+          </thead>
+          <tbody id="tableBodySektorAllok"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <section style="margin-top:32px;">
+      <h2>Einzelpositionen</h2>
+      <p class="hint">Aufschlüsselung je Ticker/Position, die in den Sektorwerten oben enthalten sind.</p>
+      <table>
+        <thead>
+          <tr><th>Position</th><th>Typ</th><th style="text-align:right">Wert</th><th>Sektor</th></tr>
+        </thead>
+        <tbody id="tableBodyPositionen"></tbody>
+      </table>
+    </section>
+
+    <div class="disclaimer">
+      Hinweis: Gesamtkapital und „Nicht gebunden" stammen direkt aus der im Sheet bereits berechneten Kapitalbindungs-Übersicht (Tab „💰Bilanz", Bereich „Kapitalbindung – Wo ist das Kapital investiert?"). Die Sektor-Aufschlüsselung wird zusätzlich bottom-up berechnet: Offene Cash Secured Puts = PUT-Positionen aus dem Tab „📅Monthly &amp; Weekly" mit Auslaufdatum <strong>nach</strong> dem heutigen Datum; Rücklage = Strike × 100 × Anzahl Kontrakte. Gehaltene Aktien stammen aus dem Tab „🔄 Aktien im Cashflowcycle" (Anzahl × ø-Einstiegspreis). Sektor-Zuordnung aus „🏭 Symbol-Name-Sektor". Keine Anlageberatung – reine Auswertung der im Community-Sheet erfassten Positionen.
+    </div>
+  </div>
+
+  <!-- ============ TAB 3: KAPITALENTWICKLUNG ============ -->
+  <div class="tabpanel" id="tab-kapital">
+    <div class="cards" id="kapitalCards"></div>
+
+    <div class="chartbox">
+      <canvas id="timeChart" height="110"></canvas>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th class="name">Monat</th><th>Eigenkapital (kum.)</th><th>G/V (kumuliert)</th><th>Kumuliertes Kapital</th></tr>
+      </thead>
+      <tbody id="tableBodyKapital"></tbody>
+    </table>
+
+    <div class="disclaimer">
+      Hinweis: Werte aus Tab „💰Bilanz", monatliches Raster (Spalte A = Monat, Spalte B = Einzahlungen des Monats, Spalte C = Abhebungen des Monats, Spalte M = Gewinn/Verlust des Monats, Spalte O = vom Sheet berechnetes kumuliertes Kapital). Eigenkapital (kum.) und G/V (kumuliert) werden daraus laufend aufsummiert. Nur Monate, die im Sheet bereits eine Formel berechnet haben, werden angezeigt – zukünftige, noch leere Monate erscheinen nicht. Ø gebundenes Eigenkapital = einfacher Durchschnitt der bisher erfassten Eigenkapitalstände. Keine Anlageberatung – reine Auswertung der im Community-Sheet erfassten Bilanz.
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ======================================================================
+   LIVE-DATENQUELLE: Google Sheet „Muster Trading Journal Cashflow Community"
+   Liest bei jedem Seitenaufruf frisch über die öffentliche gviz-JSON-
+   Schnittstelle. Das Sheet muss auf "Jeder mit dem Link kann ansehen"
+   freigegeben sein, damit dies funktioniert.
+   ====================================================================== */
+
+const SHEET_ID = "1bkR5RibsUt0UA9Jx0OEy8nMJPQOdQ9rpH1CBfKo8cYs";
+
+const TABS = {
+  monthly:   "📅Monthly & Weekly",
+  sector:    "🏭 Symbol-Name-Sektor",
+  holdings:  "🔄 Aktien im Cashflowcycle",
+  bilanz:    "💰Bilanz",
+  overnight: "🌅🌃Day & Overnight"
+};
+
+const SECTOR_COLORS = ["#3FB68B","#5C8DE8","#D9A441","#B57EDC","#E8875C","#4FB3D9","#D96B8A","#8FBF5C","#3A4250"];
+
+let jsonpCounter = 0;
+function fetchGviz(sheetName, range){
+  return new Promise((resolve, reject) => {
+    const callbackName = "gvizCallback_" + (jsonpCounter++);
+    const params = new URLSearchParams({ tqx: `out:json;responseHandler:${callbackName}`, sheet: sheetName });
+    if(range) params.set("range", range);
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?${params.toString()}`;
+
+    let settled = false;
+    const cleanup = () => {
+      delete window[callbackName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+    };
+
+    window[callbackName] = (json) => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      const table = (json && json.table) || { rows: [] };
+      const rows = (table.rows || []).map(r => (r.c || []).map(c => (c && c.v !== undefined) ? c.v : null));
+      resolve(rows);
+    };
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.onerror = () => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("Konnte Tab \"" + sheetName + "\" nicht laden (Sheet evtl. nicht öffentlich freigegeben?)"));
+    };
+    document.head.appendChild(script);
+
+    setTimeout(() => {
+      if(settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("Zeitüberschreitung beim Laden von Tab \"" + sheetName + "\""));
+    }, 15000);
+  });
+}
+
+function parseGvizDate(v){
+  if(v === null || v === undefined) return null;
+  if(typeof v === "string" && v.startsWith("Date(")){
+    const parts = v.substring(5, v.length - 1).split(",").map(Number);
+    // gviz month is 0-indexed already
+    return new Date(parts[0], parts[1], parts[2]);
+  }
+  if(v instanceof Date) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function num(v){
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function fmt(v){
+  const sign = v < 0 ? "-" : "";
+  return sign + "$" + Math.abs(v).toLocaleString("de-CH", {minimumFractionDigits:0, maximumFractionDigits:0});
+}
+function fmtPct(v){
+  return v.toLocaleString("de-CH", {minimumFractionDigits:1, maximumFractionDigits:1}) + "%";
+}
+
+function setStatus(msg, isError){
+  const el = document.getElementById("globalStatus");
+  if(!msg){ el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="status-banner${isError ? " error" : ""}">${isError ? "" : '<span class="spinner"></span>'}<span>${msg}</span></div>`;
+}
+
+/* ---- Header-basiertes Parsen für den Tab "Day & Overnight" ----
+   Die genaue Spaltenstruktur dieses Tabs ist im Community-Sheet nicht
+   fest dokumentiert, daher wird hier robust nach Spaltenüberschriften
+   gesucht statt feste Indizes anzunehmen. */
+async function loadOvernightData(){
+  try{
+    // Handelstabelle beginnt ab Zeile 21 (Header in Zeile 20):
+    // A=Tickersymbol, ... L=Gewinn/Verlust Option
+    const rows = await fetchGviz(TABS.overnight, "A21:M2000");
+    const result = {};
+    rows.forEach(r => {
+      const ticker = r[0];
+      if(!ticker) return;
+      result[ticker] = (result[ticker] || 0) + num(r[11]);
+    });
+    return result;
+  }catch(e){
+    console.warn("Overnight-Daten konnten nicht geladen werden:", e);
+    return {};
+  }
+}
+
+async function loadSectorMap(){
+  const rows = await fetchGviz(TABS.sector, "A4:C10000");
+  const map = {};
+  rows.forEach(r => {
+    const symbol = r[0];
+    const sector = r[2];
+    if(symbol) map[symbol.toString().trim().toUpperCase()] = sector || "Unbekannt";
+  });
+  return map;
+}
+
+function lookupSector(sectorMap, ticker){
+  if(!ticker) return "Unbekannt";
+  return sectorMap[ticker.toString().trim().toUpperCase()] || "Unbekannt";
+}
+
+async function loadMonthlyWeekly(){
+  const rows = await fetchGviz(TABS.monthly, "A21:R2000");
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const trades = [];
+  rows.forEach(r => {
+    const ticker = r[0];
+    if(!ticker) return;
+    trades.push({
+      ticker,
+      type: (r[2] || "").toString().toUpperCase(),
+      dateIn: parseGvizDate(r[4]),
+      dateOut: parseGvizDate(r[5]),
+      kaufpreis: num(r[7]),      // Aktienkaufpreis / ø-Einstiegspreis (nur bei CALL relevant)
+      strike: num(r[8]),
+      anzahl: num(r[9]),
+      premiumPrice: num(r[10]),
+      fees: num(r[11]),
+      gvNet: num(r[12]),
+      assignStatus: (r[16] || "").toString().trim().toLowerCase(), // "ja" / "nein"
+      verkaufspreis: num(r[17])  // Aktienverkaufspreis (nur bei eingebuchtem Call relevant)
+    });
+  });
+  return { trades, today };
+}
+
+async function loadHoldings(){
+  // "Aktien im Cashflow-Cycle - Gesamt": Header Zeile 19, Daten ab Zeile 20.
+  // S=Tickersymbol, T=Aktie, U=Anzahl, V=entspr. Anzahl Optionen, W=ø-Einstiegspreis
+  const rows = await fetchGviz(TABS.holdings, "S20:W1000");
+  const positions = [];
+  rows.forEach(r => {
+    const ticker = r[0];
+    if(!ticker) return;
+    const anzahl = num(r[2]);
+    const einstiegspreis = num(r[4]);
+    positions.push({
+      name: ticker,
+      typ: "Aktie",
+      kurs: einstiegspreis,
+      anzahl,
+      wert: anzahl * einstiegspreis
+    });
+  });
+  return positions;
+}
+
+async function loadAllocationSummary(){
+  // Bereits im Sheet vorberechnete Kapitalbindungs-Übersicht (Tab Bilanz, Zeilen 42-47)
+  const rows = await fetchGviz(TABS.bilanz, "A42:B47");
+  const byLabel = {};
+  rows.forEach(r => { if(r[0]) byLabel[r[0].toString().trim()] = num(r[1]); });
+  return {
+    gesamtkapital: byLabel["Kapital"] || 0,
+    buyHold: byLabel["Buy and Hold"] || 0,
+    cspReserve: byLabel["Rücklagen für Cash\nSecured Puts"] || byLabel["Rücklagen für Cash Secured Puts"] || 0,
+    ccStock: byLabel["Aktien für Covered Calls"] || 0,
+    dayOvernight: byLabel["Day & Overnight"] || 0,
+    frei: byLabel["flüssig / arbeitslos"] || 0
+  };
+}
+
+async function loadBilanz(){
+  // Monatliches Raster Januar-Dezember (Zeilen 25-36). Spalte A=Monat, B=Einzahlungen (Monat),
+  // C=Abhebungen (Monat), M=Gewinne/Verluste gesamt (Monat), O=Kapital kumuliert (Sheet-Formel).
+  // Zukünftige, noch nicht erreichte Monate stehen als leere Zellen im Sheet (nicht 0) und werden übersprungen.
+  const rows = await fetchGviz(TABS.bilanz, "A25:P36");
+  const points = [];
+  let eigenkapitalKum = 0;
+  rows.forEach(r => {
+    const label = r[0];
+    if(!label || r[1] === null) return; // Monat noch nicht erreicht / keine Formel vorhanden
+    const einzahlungen = num(r[1]);
+    const abhebungen = num(r[2]);
+    const monatsGV = num(r[12]);
+    const kumKapital = r[14] !== null ? num(r[14]) : null;
+    eigenkapitalKum += (einzahlungen - abhebungen);
+    points.push({
+      label,
+      eigenkapital: eigenkapitalKum,
+      gv: kumKapital !== null ? (kumKapital - eigenkapitalKum) : null,
+      kum: kumKapital !== null ? kumKapital : eigenkapitalKum
+    });
+  });
+  return points;
+}
+
+/* ======================================================================
+   BERECHNUNGSLOGIK
+   ====================================================================== */
+
+function computePremiumData(trades, sectorMap, overnightByTicker){
+  const byTicker = {};
+  trades.forEach(t => {
+    if(!byTicker[t.ticker]){
+      byTicker[t.ticker] = { t: t.ticker, sektor: lookupSector(sectorMap, t.ticker), n: 0, premium: 0, invest: 0, overnight: 0 };
+    }
+    const b = byTicker[t.ticker];
+    b.n += 1;
+    b.premium += t.gvNet;
+    // Investment-G/V entsteht nur bei einem eingebuchten (assignierten) Covered Call:
+    // (Aktienverkaufspreis - Aktienkaufpreis) x 100 x Anzahl Kontrakte
+    if(t.type === "CALL" && t.assignStatus === "ja" && t.kaufpreis && t.verkaufspreis){
+      b.invest += (t.verkaufspreis - t.kaufpreis) * 100 * t.anzahl;
+    }
+  });
+  Object.keys(overnightByTicker).forEach(tk => {
+    if(!byTicker[tk]) byTicker[tk] = { t: tk, sektor: lookupSector(sectorMap, tk), n: 0, premium: 0, invest: 0, overnight: 0 };
+    byTicker[tk].overnight += overnightByTicker[tk];
+  });
+
+  const stockData = Object.values(byTicker);
+  stockData.forEach(d => { d.total = d.premium + d.invest + d.overnight; });
+  stockData.sort((a,b) => b.total - a.total);
+
+  const bySector = {};
+  stockData.forEach(d => {
+    if(!bySector[d.sektor]) bySector[d.sektor] = { name: d.sektor, n: 0, premium: 0, invest: 0, overnight: 0 };
+    const s = bySector[d.sektor];
+    s.n += d.n; s.premium += d.premium; s.invest += d.invest; s.overnight += d.overnight;
+  });
+  const sectorData = Object.values(bySector);
+  sectorData.forEach(d => { d.total = d.premium + d.invest + d.overnight; });
+  sectorData.sort((a,b) => b.total - a.total);
+
+  const gesamt = stockData.reduce((s,d) => s + d.total, 0);
+  const praemien = stockData.reduce((s,d) => s + d.premium, 0);
+  const investGV = stockData.reduce((s,d) => s + d.invest, 0);
+  const overnight = stockData.reduce((s,d) => s + d.overnight, 0);
+  const topPerformer = stockData.length ? stockData[0].t : "–";
+
+  return { stockData, sectorData, summary: { gesamt, praemien, investGV, overnight, topPerformer } };
+}
+
+function computeOpenCSPReserves(trades, today, sectorMap){
+  const byTicker = {};
+  trades.forEach(t => {
+    if(t.type !== "PUT") return;
+    if(!t.dateOut || t.dateOut <= today) return; // nur Puts, die NACH heute auslaufen
+    const reserve = t.strike * 100 * t.anzahl;
+    if(!byTicker[t.ticker]) byTicker[t.ticker] = { ticker: t.ticker, sektor: lookupSector(sectorMap, t.ticker), reserve: 0, contracts: [] };
+    byTicker[t.ticker].reserve += reserve;
+    byTicker[t.ticker].contracts.push({ strike: t.strike, anzahl: t.anzahl, dateOut: t.dateOut });
+  });
+  return byTicker;
+}
+
+function computeAllocation(holdings, cspByTicker, sectorMap, allocationSummary){
+  const bySector = {};
+  const positions = [];
+
+  holdings.forEach(h => {
+    const sektor = lookupSector(sectorMap, h.name);
+    if(!bySector[sektor]) bySector[sektor] = { name: sektor, held: 0, csp: 0 };
+    bySector[sektor].held += h.wert;
+    positions.push({ name: h.name, typ: h.typ, wert: h.wert, sektor });
+  });
+
+  Object.values(cspByTicker).forEach(c => {
+    const sektor = c.sektor;
+    if(!bySector[sektor]) bySector[sektor] = { name: sektor, held: 0, csp: 0 };
+    bySector[sektor].csp += c.reserve;
+    c.contracts.forEach(k => {
+      positions.push({ name: c.ticker, typ: "CSP (Strike)", wert: k.strike * 100 * k.anzahl, sektor });
+    });
+  });
+
+  const heldTotal = holdings.reduce((s,h) => s + h.wert, 0);
+  const cspTotal = Object.values(cspByTicker).reduce((s,c) => s + c.reserve, 0);
+
+  // "Nicht gebunden" kommt direkt aus der Sheet-eigenen Berechnung (Zeile 47),
+  // statt es unsicher aus Gesamtkapital minus Positionen herzuleiten.
+  bySector["Nicht gebunden"] = { name: "Nicht gebunden", held: 0, csp: allocationSummary.frei };
+
+  const sectorData = Object.values(bySector).map((s,i) => ({ ...s, total: s.held + s.csp, color: SECTOR_COLORS[i % SECTOR_COLORS.length] }));
+  sectorData.sort((a,b) => b.total - a.total);
+
+  return {
+    sectorData, positions,
+    summary: {
+      gesamtkapital: allocationSummary.gesamtkapital,
+      heldTotal,
+      cspTotal,
+      nichtGebunden: allocationSummary.frei,
+      buyHold: allocationSummary.buyHold,
+      ccStock: allocationSummary.ccStock,
+      dayOvernight: allocationSummary.dayOvernight
+    }
+  };
+}
+
+/* ======================================================================
+   RENDERING
+   ====================================================================== */
+
+function renderBars(container, data, nameKey, truncate){
+  container.innerHTML = "";
+  if(!data.length){ container.innerHTML = '<div class="empty-hint">Noch keine Trades im Sheet erfasst.</div>'; return; }
+  const maxTotal = Math.max(...data.map(d => d.total), 1);
+  data.forEach(d => {
+    const lossAbsorbed = d.invest < 0 && Math.abs(d.invest) <= d.premium;
+    const premiumDisplay = lossAbsorbed ? d.premium + d.invest : d.premium;
+    const investSegmentValue = lossAbsorbed ? 0 : d.invest;
+
+    const premiumPct = Math.max(premiumDisplay,0) / maxTotal * 100;
+    const investPct = Math.max(investSegmentValue,0) / maxTotal * 100;
+    const overnightPct = Math.max(d.overnight,0) / maxTotal * 100;
+    let label = d[nameKey];
+    if(truncate && label.length > 10) label = label.slice(0,9) + "…";
+    let lossBadge = "";
+    if(investSegmentValue < 0){
+      lossBadge = `<span class="loss-badge">${fmt(investSegmentValue)} Andienung</span>`;
+    }
+    container.innerHTML += `
+      <div class="barrow">
+        <div class="name">${label}</div>
+        <div class="track">
+          <div class="seg premium" style="width:${premiumPct}%"></div>
+          <div class="seg invest-pos" style="width:${investPct}%"></div>
+          <div class="seg overnight" style="width:${overnightPct}%"></div>
+        </div>
+        <div class="val">${fmt(d.total)}</div>
+      </div>
+      ${lossBadge ? `<div style="grid-column:2/4;margin-top:-6px;text-align:right">${lossBadge}</div>` : ""}`;
+  });
+}
+
+function renderPremiumTab(data){
+  document.getElementById("premiumCards").innerHTML = `
+    <div class="card"><div class="label">Gesamteinnahmen (netto)</div><div class="value accent">${fmt(data.summary.gesamt)}</div></div>
+    <div class="card"><div class="label">davon Optionsprämien</div><div class="value">${fmt(data.summary.praemien)}</div></div>
+    <div class="card"><div class="label">davon Investment G/V</div><div class="value amber">${data.summary.investGV>=0?"+":""}${fmt(data.summary.investGV)}</div></div>
+    <div class="card"><div class="label">davon Overnight/Day</div><div class="value blue">${data.summary.overnight>=0?"+":""}${fmt(data.summary.overnight)}</div></div>
+    <div class="card"><div class="label">Top-Performer</div><div class="value amber">${data.summary.topPerformer}</div></div>
+  `;
+
+  renderBars(document.getElementById("stockBars"), data.stockData, "t", false);
+  renderBars(document.getElementById("sectorBars"), data.sectorData, "name", true);
+
+  const tbody = document.getElementById("tableBodyPremium");
+  tbody.innerHTML = "";
+  if(!data.stockData.length){
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-hint">Noch keine Trades im Sheet erfasst.</td></tr>';
+    return;
+  }
+  data.stockData.forEach(d => {
+    const lossAbsorbed = d.invest < 0 && Math.abs(d.invest) <= d.premium;
+    const premiumDisplay = lossAbsorbed ? d.premium + d.invest : d.premium;
+    const investCell = lossAbsorbed
+      ? `<span style="color:var(--text-muted)">– (verrechnet)</span>`
+      : (d.invest !== 0 ? `<span style="color:${d.invest<0?'var(--red)':'var(--amber)'}">${fmt(d.invest)}</span>` : "–");
+    tbody.innerHTML += `
+      <tr>
+        <td>${d.t}</td>
+        <td class="name">${d.sektor}</td>
+        <td class="num">${d.n}</td>
+        <td class="num">${fmt(premiumDisplay)}</td>
+        <td class="num">${investCell}</td>
+        <td class="num" style="color:${d.overnight>0?'var(--blue)':'var(--text-muted)'}">${d.overnight!==0?fmt(d.overnight):"–"}</td>
+        <td class="num" style="font-weight:700;color:#fff">${fmt(d.total)}</td>
+      </tr>`;
+  });
+}
+
+let sectorPieChart = null;
+function renderAllocationTab(alloc){
+  document.getElementById("allokationCards").innerHTML = `
+    <div class="card"><div class="label">Gesamtkapital</div><div class="value accent">${fmt(alloc.summary.gesamtkapital)}</div></div>
+    <div class="card"><div class="label">Gehaltene Aktien (AK)</div><div class="value">${fmt(alloc.summary.heldTotal)}</div></div>
+    <div class="card"><div class="label">Offene CSP-Rücklage</div><div class="value">${fmt(alloc.summary.cspTotal)}</div></div>
+    <div class="card"><div class="label">Nicht gebunden</div><div class="value muted">${fmt(alloc.summary.nichtGebunden)}</div></div>
+  `;
+
+  const grandTotal = alloc.sectorData.reduce((s,d) => s + d.total, 0) || 1;
+
+  if(sectorPieChart) sectorPieChart.destroy();
+  const ctx = document.getElementById("sectorPie").getContext("2d");
+  sectorPieChart = new Chart(ctx, {
+    type: "pie",
+    data: {
+      labels: alloc.sectorData.map(d => d.name),
+      datasets: [{ data: alloc.sectorData.map(d => d.total), backgroundColor: alloc.sectorData.map(d => d.color), borderColor: "#0D1117", borderWidth: 2 }]
+    },
+    options: {
+      plugins: {
+        legend: { position: "bottom", labels: { color: "#C9D1D9", font: { family: "Inter", size: 12 }, padding: 14 } },
+        tooltip: { callbacks: { label: ctx => { const pct = (ctx.parsed / grandTotal * 100).toFixed(1); return ctx.label + ": " + fmt(ctx.parsed) + " (" + pct + "%)"; } } }
+      }
+    }
+  });
+
+  const tbodySektor = document.getElementById("tableBodySektorAllok");
+  tbodySektor.innerHTML = "";
+  alloc.sectorData.forEach(d => {
+    const pct = d.total / grandTotal * 100;
+    tbodySektor.innerHTML += `
+      <tr>
+        <td class="name-flex"><span class="dot" style="background:${d.color}"></span>${d.name}</td>
+        <td class="num">${d.name === "Nicht gebunden" ? "–" : (d.held ? fmt(d.held) : "–")}</td>
+        <td class="num">${d.name === "Nicht gebunden" ? "–" : (d.csp ? fmt(d.csp) : "–")}</td>
+        <td class="num" style="font-weight:700;color:#fff">${fmt(d.total)}</td>
+        <td class="num">${fmtPct(pct)}</td>
+      </tr>`;
+  });
+
+  const tbodyPos = document.getElementById("tableBodyPositionen");
+  tbodyPos.innerHTML = "";
+  if(!alloc.positions.length){
+    tbodyPos.innerHTML = '<tr><td colspan="4" class="empty-hint">Noch keine Positionen im Sheet erfasst.</td></tr>';
+  } else {
+    alloc.positions.forEach(p => {
+      tbodyPos.innerHTML += `
+        <tr>
+          <td class="name">${p.name}</td>
+          <td class="name">${p.typ}</td>
+          <td class="num" style="font-weight:700;color:#fff">${fmt(p.wert)}</td>
+          <td class="name">${p.sektor}</td>
+        </tr>`;
+    });
+  }
+}
+
+let timeChart = null;
+function renderKapitalTab(points){
+  if(!points.length){
+    document.getElementById("kapitalCards").innerHTML = '<div class="empty-hint" style="grid-column:1/-1">Noch keine Bilanz-Einträge im Sheet erfasst.</div>';
+    document.getElementById("tableBodyKapital").innerHTML = '<tr><td colspan="4" class="empty-hint">Keine Daten.</td></tr>';
+    return;
+  }
+  const last = points[points.length - 1];
+  const avgEigenkapital = points.reduce((s,p) => s + p.eigenkapital, 0) / points.length;
+  const avgRendite = avgEigenkapital ? (last.gv / avgEigenkapital * 100) : 0;
+
+  document.getElementById("kapitalCards").innerHTML = `
+    <div class="card"><div class="label">Eigenkapital (aktuell)</div><div class="value accent">${fmt(last.eigenkapital)}</div></div>
+    <div class="card"><div class="label">G/V kumuliert</div><div class="value amber">${last.gv>=0?"+":""}${fmt(last.gv)}</div></div>
+    <div class="card"><div class="label">Kumuliertes Kapital</div><div class="value blue">${fmt(last.kum)}</div></div>
+    <div class="card"><div class="label">Ø gebundenes Eigenkapital</div><div class="value">${fmt(avgEigenkapital)}</div></div>
+    <div class="card"><div class="label">Ø Rendite</div><div class="value accent">${avgRendite>=0?"+":""}${fmtPct(avgRendite)}</div></div>
+  `;
+
+  const monthLabels = points.map(p => p.label);
+
+  if(timeChart) timeChart.destroy();
+  const ctx = document.getElementById("timeChart").getContext("2d");
+  timeChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: monthLabels,
+      datasets: [
+        { label: "Eigenkapital (kumuliert)", data: points.map(p => p.eigenkapital), borderColor: "#3FB68B", backgroundColor: "#3FB68B", tension: 0.25, pointRadius: 4, borderWidth: 2 },
+        { label: "Gewinn/Verlust (kumuliert)", data: points.map(p => p.gv), borderColor: "#D9A441", backgroundColor: "#D9A441", tension: 0.25, pointRadius: 4, borderWidth: 2 },
+        { label: "Kumuliertes Kapital", data: points.map(p => p.kum), borderColor: "#5C8DE8", backgroundColor: "#5C8DE8", tension: 0.25, pointRadius: 4, borderWidth: 2, borderDash: [6,3] }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { position: "bottom", labels: { color: "#C9D1D9", font: { family: "Inter", size: 12 }, padding: 14 } },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": " + fmt(ctx.parsed.y) } }
+      },
+      scales: {
+        x: { grid: { color: "#2A313C" }, ticks: { color: "#8B949E", font: { family: "JetBrains Mono", size: 11 } } },
+        y: { grid: { color: "#2A313C" }, ticks: { color: "#8B949E", font: { family: "JetBrains Mono", size: 11 }, callback: v => fmt(v) } }
+      }
+    }
+  });
+
+  const tbody = document.getElementById("tableBodyKapital");
+  tbody.innerHTML = "";
+  points.forEach(p => {
+    tbody.innerHTML += `
+      <tr>
+        <td class="name">${p.label}</td>
+        <td>${fmt(p.eigenkapital)}</td>
+        <td>${fmt(p.gv)}</td>
+        <td style="font-weight:700;color:#fff">${fmt(p.kum)}</td>
+      </tr>`;
+  });
+}
+
+/* ======================================================================
+   BOOTSTRAP: alle Tabs laden und rendern
+   ====================================================================== */
+
+async function init(){
+  setStatus("Lade Live-Daten aus dem Google Sheet …", false);
+  try{
+    const [sectorMap, monthlyData, holdings, bilanzPoints, overnightByTicker, allocationSummary] = await Promise.all([
+      loadSectorMap(),
+      loadMonthlyWeekly(),
+      loadHoldings(),
+      loadBilanz(),
+      loadOvernightData(),
+      loadAllocationSummary()
+    ]);
+
+    const premiumData = computePremiumData(monthlyData.trades, sectorMap, overnightByTicker);
+    renderPremiumTab(premiumData);
+
+    const cspByTicker = computeOpenCSPReserves(monthlyData.trades, monthlyData.today, sectorMap);
+    const alloc = computeAllocation(holdings, cspByTicker, sectorMap, allocationSummary);
+    renderAllocationTab(alloc);
+
+    renderKapitalTab(bilanzPoints);
+
+    setStatus("", false);
+  }catch(err){
+    console.error(err);
+    setStatus("Live-Daten konnten nicht geladen werden: " + err.message + ". Prüfe, ob das Google Sheet auf \"Jeder mit dem Link\" freigegeben ist und ob die Tab-Namen im Sheet noch mit dem Dashboard übereinstimmen.", true);
+  }
+}
+
+document.querySelectorAll(".tabbtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabbtn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tabpanel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.tab).classList.add("active");
+  });
+});
+
+init();
+</script>
+</body>
+</html>
