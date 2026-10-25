@@ -279,14 +279,43 @@
     <p class="sub" style="margin-bottom:20px;">Wie viele Puts wurden bislang zu welchem Delta eingebucht, und wie schnell werden die dadurch übernommenen Aktien/ETFs wieder über Covered Calls verkauft?</p>
 
     <section>
+      <h2>Andienungen &amp; Call-Exits pro Aktie/ETF <span class="tag">Detailsicht je Ticker</span></h2>
+      <p class="hint">Wähle eine Aktie/ETF: Das Diagramm zeigt die eingebuchten Put-Kontrakte je Delta, die Tabelle jede einzelne Andienung mit dem Datum, an dem die Aktien per Covered Call wieder ausgebucht wurden (chronologische Zuordnung je Ticker, wie oben).</p>
+      <div style="margin-bottom:14px;">
+        <select id="andienungTickerSelect" class="filter-select"></select>
+      </div>
+      <div class="cards cols4" id="andienungTickerCards"></div>
+      <div class="chartbox">
+        <canvas id="andienungTickerDeltaChart" height="90"></canvas>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Eingebucht am</th><th>Weekly/Monthly</th><th style="text-align:right">Delta</th><th style="text-align:right">Strike</th><th style="text-align:right">Kontrakte</th><th>Ausgebucht per Call am</th><th style="text-align:right">Haltedauer</th><th>Status</th></tr>
+        </thead>
+        <tbody id="tableBodyAndienungTicker"></tbody>
+      </table>
+    </section>
+
+    <section style="margin-top:32px;">
       <h2>Eingebuchte Puts pro Delta</h2>
-      <p class="hint">Alle Puts mit Status „eingebucht" (Spalte Q = „ja"), aufgeschlüsselt nach Delta-Wert.</p>
+      <p class="hint">Alle Puts mit Status „eingebucht" (Spalte Q = „ja"), aufgeschlüsselt nach Delta-Wert und getrennt nach Weekly und Monthly.</p>
       <div class="chartbox">
         <canvas id="assignedPutsByDeltaChart" height="100"></canvas>
       </div>
       <table>
         <thead>
-          <tr><th>Delta</th><th style="text-align:right">Anzahl Puts</th><th style="text-align:right">Kontrakte</th><th style="text-align:right">Kapitalwert</th><th style="text-align:right">Anteil</th></tr>
+          <tr>
+            <th rowspan="2" style="vertical-align:bottom;">Delta</th>
+            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border);">Weekly</th>
+            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border);">Monthly</th>
+            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border);">Gesamt</th>
+            <th rowspan="2" style="text-align:right;vertical-align:bottom;">Anteil</th>
+          </tr>
+          <tr>
+            <th style="text-align:right">Puts</th><th style="text-align:right">Kontrakte</th><th style="text-align:right">Kapitalwert</th>
+            <th style="text-align:right">Puts</th><th style="text-align:right">Kontrakte</th><th style="text-align:right">Kapitalwert</th>
+            <th style="text-align:right">Puts</th><th style="text-align:right">Kontrakte</th><th style="text-align:right">Kapitalwert</th>
+          </tr>
         </thead>
         <tbody id="tableBodyAssignedPutsByDelta"></tbody>
       </table>
@@ -299,24 +328,6 @@
       <div class="chartbox">
         <canvas id="holdingDaysDistributionChart" height="100"></canvas>
       </div>
-    </section>
-
-    <section style="margin-top:32px;">
-      <h2>Andienungen &amp; Call-Exits pro Aktie/ETF <span class="tag">Detailsicht je Ticker</span></h2>
-      <p class="hint">Wähle eine Aktie/ETF: Das Diagramm zeigt die eingebuchten Put-Kontrakte je Delta, die Tabelle jede einzelne Andienung mit dem Datum, an dem die Aktien per Covered Call wieder ausgebucht wurden (chronologische Zuordnung je Ticker, wie oben).</p>
-      <div style="margin-bottom:14px;">
-        <select id="andienungTickerSelect" class="filter-select"></select>
-      </div>
-      <div class="cards cols4" id="andienungTickerCards"></div>
-      <div class="chartbox">
-        <canvas id="andienungTickerDeltaChart" height="90"></canvas>
-      </div>
-      <table>
-        <thead>
-          <tr><th>Eingebucht am</th><th style="text-align:right">Delta</th><th style="text-align:right">Strike</th><th style="text-align:right">Kontrakte</th><th>Ausgebucht per Call am</th><th style="text-align:right">Haltedauer</th><th>Status</th></tr>
-        </thead>
-        <tbody id="tableBodyAndienungTicker"></tbody>
-      </table>
     </section>
 
     <div class="disclaimer">
@@ -1018,11 +1029,16 @@ function computeAssignedPutsByDelta(trades){
   return DELTA_VALUES.map(v => {
     const label = String(v);
     const inBucket = assignedPuts.filter(t => assignDeltaBucket(t.delta) === label);
+    const stats = list => ({
+      anzahlPuts: list.length,
+      anzahlKontrakte: list.reduce((s,t) => s + t.anzahl, 0),
+      kapitalwert: list.reduce((s,t) => s + (t.strike * 100 * t.anzahl), 0)
+    });
     return {
       label,
-      anzahlPuts: inBucket.length,
-      anzahlKontrakte: inBucket.reduce((s,t) => s + t.anzahl, 0),
-      kapitalwert: inBucket.reduce((s,t) => s + (t.strike * 100 * t.anzahl), 0),
+      ...stats(inBucket),
+      weekly: stats(inBucket.filter(t => t.weeklyMonthly === "Weekly")),
+      monthly: stats(inBucket.filter(t => t.weeklyMonthly === "Monthly")),
       anteil: totalCount ? inBucket.length / totalCount * 100 : 0
     };
   });
@@ -1849,7 +1865,7 @@ function renderAssignedPutsByDelta(buckets){
   const tbody = document.getElementById("tableBodyAssignedPutsByDelta");
   if(!hasData){
     ctx.canvas.parentElement.innerHTML = '<div class="empty-hint">Noch keine eingebuchten Puts mit erfasstem Delta-Wert im Sheet.</div>';
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-hint">Keine Daten.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty-hint">Keine Daten.</td></tr>';
     return;
   }
 
@@ -1857,29 +1873,34 @@ function renderAssignedPutsByDelta(buckets){
     type: "bar",
     data: {
       labels: buckets.map(b => "Δ " + b.label),
-      datasets: [{ label: "Eingebuchte Puts", data: buckets.map(b => b.anzahlPuts), backgroundColor: "#3FB68B", borderRadius: 4 }]
+      datasets: [
+        { label: "Weekly", data: buckets.map(b => b.weekly.anzahlPuts), backgroundColor: "#3FB68B", borderRadius: 4 },
+        { label: "Monthly", data: buckets.map(b => b.monthly.anzahlPuts), backgroundColor: "#5C8DE8", borderRadius: 4 }
+      ]
     },
     options: {
       plugins: {
-        legend: { display: false },
+        legend: { position: "bottom", labels: { color: "#C9D1D9", font: { family: "Inter", size: 12 }, padding: 14 } },
         tooltip: { callbacks: { label: ctx => {
           const b = buckets[ctx.dataIndex];
-          return b.anzahlPuts + " Puts (" + fmtPct1(b.anteil) + " Anteil)";
+          const d = ctx.dataset.label === "Weekly" ? b.weekly : b.monthly;
+          return ctx.dataset.label + ": " + d.anzahlPuts + " Puts (" + d.anzahlKontrakte + " Kontrakte)";
         } } }
       },
       scales: {
         x: { grid: { display: false }, ticks: { color: "#8B949E", font: { family: "JetBrains Mono", size: 11 } } },
-        y: { grid: { color: "#2A313C" }, ticks: { color: "#8B949E", font: { family: "JetBrains Mono", size: 11 } } }
+        y: { grid: { color: "#2A313C" }, beginAtZero: true, ticks: { color: "#8B949E", precision: 0, font: { family: "JetBrains Mono", size: 11 } } }
       }
     }
   });
 
+  const cell = d => `<td class="num">${d.anzahlPuts}</td><td class="num">${d.anzahlKontrakte}</td><td class="num">${d.anzahlPuts ? fmt(d.kapitalwert) : "–"}</td>`;
   tbody.innerHTML = buckets.map(b => `
     <tr>
       <td>${b.label}</td>
-      <td class="num">${b.anzahlPuts}</td>
-      <td class="num">${b.anzahlKontrakte}</td>
-      <td class="num">${b.anzahlPuts ? fmt(b.kapitalwert) : "–"}</td>
+      ${cell(b.weekly)}
+      ${cell(b.monthly)}
+      ${cell(b)}
       <td class="num">${b.anzahlPuts ? fmtPct1(b.anteil) : "–"}</td>
     </tr>`).join("");
 }
@@ -2062,7 +2083,7 @@ function computeAssignmentsByTicker(trades){
       const exit = i < sales.length ? sales[i] : null;
       const tage = exit ? Math.round((exit - p.dateOut) / 86400000) : null;
       return {
-        dateIn: p.dateOut, delta: assignDeltaBucket(p.delta), strike: p.strike, anzahl: p.anzahl,
+        dateIn: p.dateOut, wm: p.weeklyMonthly, delta: assignDeltaBucket(p.delta), strike: p.strike, anzahl: p.anzahl,
         exitDate: exit, tage: tage !== null && tage >= 0 ? tage : null
       };
     });
@@ -2085,13 +2106,16 @@ function renderAndienungTicker(ticker){
   `;
 
   const labels = DELTA_VALUES.map(v => "Δ " + v);
-  const contracts = DELTA_VALUES.map(v => rows.filter(r => r.delta === String(v)).reduce((s,r) => s + r.anzahl, 0));
+  const contractsFor = wm => DELTA_VALUES.map(v => rows.filter(r => r.delta === String(v) && r.wm === wm).reduce((s,r) => s + r.anzahl, 0));
   if(andienungTickerChart) andienungTickerChart.destroy();
   andienungTickerChart = new Chart(document.getElementById("andienungTickerDeltaChart").getContext("2d"), {
     type: "bar",
-    data: { labels, datasets: [{ label: "Eingebuchte Kontrakte", data: contracts, backgroundColor: "#3FB68B", borderRadius: 4 }] },
+    data: { labels, datasets: [
+      { label: "Weekly", data: contractsFor("Weekly"), backgroundColor: "#3FB68B", borderRadius: 4 },
+      { label: "Monthly", data: contractsFor("Monthly"), backgroundColor: "#5C8DE8", borderRadius: 4 }
+    ] },
     options: {
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + " Kontrakte" } } },
+      plugins: { legend: { position: "bottom", labels: { color: "#C9D1D9", font: { family: "Inter", size: 12 }, padding: 14 } }, tooltip: { callbacks: { label: c => c.dataset.label + ": " + c.parsed.y + " Kontrakte" } } },
       scales: {
         x: { grid: { display: false }, ticks: { color: "#8B949E", font: { family: "JetBrains Mono", size: 11 } } },
         y: { grid: { color: "#2A313C" }, beginAtZero: true, ticks: { color: "#8B949E", precision: 0, font: { family: "JetBrains Mono", size: 11 } } }
@@ -2103,6 +2127,7 @@ function renderAndienungTicker(ticker){
   tbody.innerHTML = rows.map(r => `
     <tr>
       <td>${fmtDateDisplay(r.dateIn)}</td>
+      <td>${r.wm || "–"}</td>
       <td class="num">${r.delta || "–"}</td>
       <td class="num">${r.strike ? r.strike.toLocaleString("de-CH", {minimumFractionDigits:2, maximumFractionDigits:2}) : "–"}</td>
       <td class="num">${r.anzahl}</td>
