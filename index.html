@@ -414,11 +414,11 @@
     </section>
 
     <section style="margin-top:32px;">
-      <h2>2. Unzureichende Call-Abdeckung für Put-Bestand <span class="tag">Summe Calls &lt; Summe gehaltener Aktien aus Puts</span></h2>
-      <p class="hint">Pro Ticker: Anzahl der aus eingebuchten Puts gehaltenen Aktien (in Kontrakten, abzüglich bereits per Call abgenommener Kontrakte) verglichen mit der Summe aller aktuell laufenden bzw. künftigen Calls (Date Out ≥ heute) auf denselben Ticker. Ist die Call-Summe kleiner, ist der Bestand nicht vollständig abgesichert. Ticker mit einem bereits abgelaufenen, aber noch nicht gepflegten Call (siehe Prüfung 1) werden hier bewusst ausgeblendet, um Doppelmeldungen zu vermeiden.</p>
+      <h2>2. Positionen ohne Call-Abdeckung <span class="tag">Bestand größer als Calls + Unvermietet</span></h2>
+      <p class="hint">Pro Ticker: Bestand aus eingebuchten Puts (in Kontrakten, abzüglich bereits per Call verkaufter Kontrakte) im Vergleich zu den aktuell laufenden bzw. künftigen Calls (Date Out ≥ heute). Positionen, die laut Tab „Aktien im Cashflowcycle" (Übersicht der Nicht-Vermietungen, Spalten AI–AM) bewusst unvermietet sind – etwa weil es am Strike keine Call-Prämie mehr gibt – und dort noch nicht als „wieder vermietet / verkauft" eingetragen sind, werden als „Unvermietet" abgezogen. „Fehlend" = Bestand − Mit Call − Unvermietet. Ticker mit einem bereits abgelaufenen, aber noch nicht gepflegten Call (siehe Prüfung 1) werden hier bewusst ausgeblendet, um Doppelmeldungen zu vermeiden.</p>
       <table>
         <thead>
-          <tr><th>Teilnehmer</th><th>Ticker</th><th style="text-align:right">Gehalten (Kontrakte)</th><th style="text-align:right">Abgedeckt (Kontrakte)</th><th style="text-align:right">Fehlend</th></tr>
+          <tr><th>Teilnehmer</th><th>Ticker</th><th style="text-align:right">Bestand (Kontrakte)</th><th style="text-align:right">Mit Call</th><th style="text-align:right">Unvermietet</th><th style="text-align:right">Fehlend</th></tr>
         </thead>
         <tbody id="tableBodyIssue2"></tbody>
       </table>
@@ -932,6 +932,28 @@ async function loadHoldings(){
   return positions;
 }
 
+// Übersicht der Nicht-Vermietungen (Tab "Aktien im Cashflowcycle", Spalten AI-AM, ab Zeile 20):
+// AI=Ticker, AK=Anzahl (Kontrakte), AL=nicht vermietet ab, AM=wieder vermietet/verkauft am.
+// Aktiv unvermietet = Anzahl > 0 und "wieder vermietet/verkauft am" (AM) noch leer.
+async function loadUnrented(){
+  try{
+    const rows = await fetchGvizRange(TABS.holdings, "AI:AM", 20, 997);
+    const byTicker = {};
+    rows.forEach(r => {
+      if(!r[0]) return;
+      const ticker = r[0].toString().trim().toUpperCase();
+      const kontrakte = num(r[2]);
+      const wiederAm = parseGvizDate(r[4]);
+      if(kontrakte <= 0 || wiederAm) return;
+      byTicker[ticker] = (byTicker[ticker] || 0) + kontrakte;
+    });
+    return byTicker;
+  }catch(err){
+    console.warn("Unvermietet-Übersicht konnte nicht geladen werden:", err);
+    return {};
+  }
+}
+
 async function loadAllocationSummary(){
   // Bereits im Sheet vorberechnete Kapitalbindungs-Übersicht (Tab Bilanz, Zeilen 42-47)
   const rows = await fetchGviz(TABS.bilanz, "A42:B47");
@@ -1325,7 +1347,8 @@ function computeMissingAssignmentStatus(trades, today){
 // Issue 2: Put wurde eingebucht (Aktien übernommen), aber es existiert kein
 // Call auf denselben Ticker, dessen Date Out am oder nach heute liegt -
 // die übernommenen Aktien sind aktuell nicht mit einem Covered Call abgedeckt.
-function computeInsufficientCallCoverage(trades, today){
+function computeInsufficientCallCoverage(trades, today, unrentedShares){
+  unrentedShares = unrentedShares || {};
   const tickers = [...new Set(trades.filter(t => t.type === "PUT" && t.assignStatus === "ja").map(t => t.ticker))];
   const results = [];
   tickers.forEach(ticker => {
@@ -1352,13 +1375,20 @@ function computeInsufficientCallCoverage(trades, today){
       .filter(t => t.ticker === ticker && t.type === "CALL" && t.dateOut && t.dateOut >= today)
       .reduce((s,t) => s + t.anzahl, 0);
 
-    if(activeCallCoverage < currentlyHeld){
+    // Laut TJ-Tab "Aktien im Cashflowcycle" bewusst unvermietete Positionen (z. B. keine
+    // Call-Prämie mehr am Strike). Spalte AK enthält bereits Kontrakte.
+    const unvermietet = unrentedShares[ticker] || 0;
+
+    const fehlend = currentlyHeld - activeCallCoverage - unvermietet;
+
+    if(fehlend > 0){
       results.push({
         teilnehmer: participantForTicker(ticker),
         ticker,
         gehalten: currentlyHeld,
         abgedeckt: activeCallCoverage,
-        fehlend: currentlyHeld - activeCallCoverage
+        unvermietet,
+        fehlend
       });
     }
   });
@@ -2311,7 +2341,7 @@ function renderIssue1(list){
 function renderIssue2(list){
   const tbody = document.getElementById("tableBodyIssue2");
   if(!list.length){
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-hint">Keine offenen Fälle gefunden – alle aus Puts gehaltenen Bestände sind aktuell vollständig durch Calls abgedeckt.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-hint">Keine offenen Fälle gefunden – alle gehaltenen Positionen sind per Call vermietet oder als unvermietet eingetragen.</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(r => `
@@ -2320,6 +2350,7 @@ function renderIssue2(list){
       <td>${tickerLabel(r.ticker)}</td>
       <td class="num">${r.gehalten}</td>
       <td class="num">${r.abgedeckt}</td>
+      <td class="num">${r.unvermietet ? r.unvermietet.toLocaleString("de-CH", {maximumFractionDigits:2}) : "–"}</td>
       <td class="num" style="color:var(--red)">${r.fehlend}</td>
     </tr>`).join("");
 }
@@ -2425,12 +2456,13 @@ function renderIssue8(list){
 async function init(){
   setStatus("Lade Live-Daten aus dem Google Sheet …", false);
   try{
-    const [sectorMap, monthlyData, holdings, overnightByTicker, allocationSummary] = await Promise.all([
+    const [sectorMap, monthlyData, holdings, overnightByTicker, allocationSummary, unrentedShares] = await Promise.all([
       loadSectorMap(),
       loadMonthlyWeekly(),
       loadHoldings(),
       loadOvernightData(),
-      loadAllocationSummary()
+      loadAllocationSummary(),
+      loadUnrented()
     ]);
 
     // Alle tatsächlich gehandelten Ticker (Teilnehmerliste + live geladene Trades)
@@ -2452,7 +2484,7 @@ async function init(){
     const issue1 = computeMissingAssignmentStatus(monthlyData.trades, monthlyData.today);
     renderIssue1(issue1);
 
-    const issue2 = computeInsufficientCallCoverage(monthlyData.trades, monthlyData.today);
+    const issue2 = computeInsufficientCallCoverage(monthlyData.trades, monthlyData.today, unrentedShares);
     renderIssue2(issue2);
 
     const issue3 = computeInvalidOrMissingDelta(monthlyData.trades);
