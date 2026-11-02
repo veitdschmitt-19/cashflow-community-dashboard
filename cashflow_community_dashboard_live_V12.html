@@ -469,24 +469,13 @@
     </section>
 
     <section style="margin-top:32px;">
-      <h2>7. Mögliche Duplikate <span class="tag">identischer Ticker, Typ, Datum, Strike, Anzahl &amp; Aktienkaufpreis</span></h2>
-      <p class="hint">Zwei oder mehr Zeilen mit exakt denselben Eckdaten – möglicherweise eine versehentliche Doppelerfassung desselben Trades. Der Aktienkaufpreis wird bewusst mitverglichen: Wurden in einer Vorperiode mehrere Puts eingebucht, können in der Folgeperiode durchaus mehrere Calls mit demselben Strike verkauft werden – diese unterscheiden sich dann aber in der Kostenbasis (Aktienkaufpreis) und sind keine echten Duplikate.</p>
-      <table>
-        <thead>
-          <tr><th>Teilnehmer</th><th>Ticker</th><th>Typ</th><th>Date In</th><th>Date Out</th><th style="text-align:right">Anzahl Zeilen</th></tr>
-        </thead>
-        <tbody id="tableBodyIssue7"></tbody>
-      </table>
-    </section>
-
-    <section style="margin-top:32px;">
-      <h2>8. Fehlender Call/Put-Typ <span class="tag">Spalte C leer trotz befüllter Zeile</span></h2>
+      <h2>7. Fehlender Call/Put-Typ <span class="tag">Spalte C leer trotz befüllter Zeile</span></h2>
       <p class="hint">Die Zeile enthält einen Ticker (also grundsätzlich einen erfassten Trade), aber Spalte C (Call/Put) wurde nicht befüllt.</p>
       <table>
         <thead>
           <tr><th>Teilnehmer</th><th>Ticker</th><th>Date In</th><th>Date Out</th></tr>
         </thead>
-        <tbody id="tableBodyIssue8"></tbody>
+        <tbody id="tableBodyIssue7"></tbody>
       </table>
     </section>
 
@@ -1449,37 +1438,6 @@ function computeUnknownTickers(trades){
     .sort((a,b) => a.ticker.localeCompare(b.ticker));
 }
 
-// 7. Mögliche Duplikate: identischer Ticker, Typ, Date In, Date Out, Strike,
-// Anzahl UND Aktienkaufpreis. Der Aktienkaufpreis ist wichtig, weil bei
-// mehreren in einer Vorperiode eingebuchten Puts durchaus mehrere Calls mit
-// demselben Strike in der Folgeperiode verkauft werden können - die sich
-// dann aber im Aktienkaufpreis (unterschiedliche Andienungs-Kostenbasis)
-// unterscheiden und daher keine echten Duplikate sind.
-function computeDuplicateTrades(trades){
-  const groups = {};
-  trades.forEach(t => {
-    const key = [
-      t.ticker, t.type,
-      t.dateIn ? t.dateIn.getTime() : "",
-      t.dateOut ? t.dateOut.getTime() : "",
-      t.strike, t.anzahl, t.kaufpreis
-    ].join("|");
-    if(!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  });
-  return Object.values(groups)
-    .filter(list => list.length > 1)
-    .map(list => ({
-      teilnehmer: participantForTicker(list[0].ticker),
-      ticker: list[0].ticker,
-      typ: list[0].type,
-      dateIn: fmtDateDisplay(list[0].dateIn),
-      dateOut: fmtDateDisplay(list[0].dateOut),
-      anzahlZeilen: list.length
-    }))
-    .sort((a,b) => a.ticker.localeCompare(b.ticker));
-}
-
 // 8. Spalte C (Call/Put) leer, obwohl die Zeile einen Ticker enthält.
 function computeMissingType(trades){
   return trades
@@ -2420,23 +2378,6 @@ function renderIssue6(list){
 function renderIssue7(list){
   const tbody = document.getElementById("tableBodyIssue7");
   if(!list.length){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-hint">Keine offenen Fälle gefunden.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = list.map(r => `
-    <tr>
-      <td class="name">${r.teilnehmer}</td>
-      <td>${tickerLabel(r.ticker)}</td>
-      <td>${r.typ}</td>
-      <td>${r.dateIn}</td>
-      <td>${r.dateOut}</td>
-      <td class="num">${r.anzahlZeilen}</td>
-    </tr>`).join("");
-}
-
-function renderIssue8(list){
-  const tbody = document.getElementById("tableBodyIssue8");
-  if(!list.length){
     tbody.innerHTML = '<tr><td colspan="4" class="empty-hint">Keine offenen Fälle gefunden.</td></tr>';
     return;
   }
@@ -2499,12 +2440,9 @@ async function init(){
     const issue6 = computeUnknownTickers(monthlyData.trades);
     renderIssue6(issue6);
 
-    const issue7 = computeDuplicateTrades(monthlyData.trades);
+    const issue7 = computeMissingType(monthlyData.trades);
     renderIssue7(issue7);
-
-    const issue8 = computeMissingType(monthlyData.trades);
-    renderIssue8(issue8);
-    const issueTotal = [issue1,issue2,issue3,issue4,issue5,issue6,issue7,issue8].reduce((sum,l) => sum + l.length, 0);
+    const issueTotal = [issue1,issue2,issue3,issue4,issue5,issue6,issue7].reduce((sum,l) => sum + l.length, 0);
     ["issueBadgeGroup","issueBadgeTab"].forEach(id => {
       const el = document.getElementById(id);
       el.textContent = issueTotal;
