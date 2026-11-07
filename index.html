@@ -76,6 +76,14 @@
   .tabbar .tabbtn.active{background:var(--surface);}
   .count-badge{display:inline-block;margin-left:7px;min-width:18px;padding:1px 6px;border-radius:9px;background:var(--red);color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;text-align:center;}
   .count-badge[hidden]{display:none;}
+  .wk-scroll{overflow-x:auto;}
+  .wk-table th,.wk-table td{white-space:nowrap;}
+  .wk-table th.wk,.wk-table td.wk{text-align:center;}
+  .wk-table td:first-child,.wk-table th:first-child{position:sticky;left:0;background:var(--surface);z-index:1;}
+  .wk-pill{display:inline-block;min-width:32px;padding:2px 8px;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;text-align:center;}
+  .wk-pill.ok{color:#0F1419;background:var(--accent);}
+  .wk-pill.wait{color:#0F1419;background:#E8C547;}
+  .wk-pill.miss{color:#fff;background:var(--red);}
   .tabbtn{
     font-family:'Inter',sans-serif;font-size:13px;font-weight:500;
     color:var(--text-muted);background:none;border:none;padding:12px 18px;
@@ -230,6 +238,7 @@
       <button class="tabbtn" data-group="aktien" data-tab="tab-teilnehmer">Teilnehmer &amp; Basiswerte</button>
       <button class="tabbtn" data-group="aktien" data-tab="tab-fundamental">Fundamental-Analyse</button>
       <button class="tabbtn" data-group="qualitaet" data-tab="tab-issues">Issues<span class="count-badge" id="issueBadgeTab" hidden></span></button>
+      <button class="tabbtn" data-group="qualitaet" data-tab="tab-wochen">Wochen-Abdeckung<span class="count-badge" id="weekBadgeTab" hidden></span></button>
     </div>
   </div>
 
@@ -481,6 +490,29 @@
 
     <div class="disclaimer">
       Hinweis: Alle Prüfungen laufen client-seitig gegen die live geladenen Daten aus Tab „📅Monthly &amp; Weekly" — es werden keine Daten in das Google Sheet zurückgeschrieben. „Teilnehmer" wird über die Ticker-Zuordnung aus dem Tab „Teilnehmer &amp; Basiswerte" ermittelt; Ticker ohne bekannte Zuordnung erscheinen als „Unbekannt". Keine Anlageberatung.
+    </div>
+  </div>
+
+  <!-- ============ TAB: WOCHEN-ABDECKUNG ============ -->
+  <div class="tabpanel" id="tab-wochen">
+    <p class="sub" style="margin-bottom:20px;">Hat jeder Teilnehmer für seine Aktie in jeder Woche ab KW 35/2026 mindestens einen Trade im Trading Journal erfasst?</p>
+
+    <div class="cards cols4" id="weekCards"></div>
+
+    <section>
+      <h2>Trades pro Teilnehmer &amp; Woche <span class="tag">ab KW 35 / 2026</span></h2>
+      <p class="hint"><span class="wk-pill ok">OK</span> mindestens ein Trade (Date In in dieser Woche, Tab „Monthly &amp; Weekly") oder die Aktie war in dieser Woche als nicht vermietet eingetragen (Tab „Aktien im Cashflowcycle", Spalten AI–AM). <span class="wk-pill wait">?</span> aktuelle Woche, noch kein Trade – Trading ist montags oder dienstags erlaubt. <span class="wk-pill miss">⚡</span> kein Trade und nicht als unvermietet gekennzeichnet – hier fehlt etwas. Wochen laufen von Montag bis Sonntag (ISO-Kalenderwochen).</p>
+      <div id="weekWarning"></div>
+      <div class="wk-scroll">
+        <table class="wk-table">
+          <thead id="tableHeadWochen"></thead>
+          <tbody id="tableBodyWochen"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="disclaimer">
+      Hinweis: Ein Eintrag zählt für die Woche, in der das „Date In" (Verkaufsdatum der Option) liegt – egal ob Weekly oder Monthly, Put oder Call. Die Zuordnung Teilnehmer ↔ Ticker stammt aus dem Tab „Teilnehmer &amp; Basiswerte". Keine Anlageberatung.
     </div>
   </div>
 
@@ -927,19 +959,22 @@ async function loadHoldings(){
 async function loadUnrented(){
   try{
     const rows = await fetchGvizRange(TABS.holdings, "AI:AM", 20, 997);
-    const byTicker = {};
+    const byTicker = {};   // aktuell offene Nicht-Vermietungen (Kontrakte je Ticker)
+    const periods = [];    // alle Nicht-Vermietungs-Zeiträume (auch bereits beendete)
     rows.forEach(r => {
       if(!r[0]) return;
       const ticker = r[0].toString().trim().toUpperCase();
       const kontrakte = num(r[2]);
+      const vonAm = parseGvizDate(r[3]);
       const wiederAm = parseGvizDate(r[4]);
-      if(kontrakte <= 0 || wiederAm) return;
-      byTicker[ticker] = (byTicker[ticker] || 0) + kontrakte;
+      if(kontrakte <= 0) return;
+      periods.push({ ticker, von: vonAm, bis: wiederAm });
+      if(!wiederAm) byTicker[ticker] = (byTicker[ticker] || 0) + kontrakte;
     });
-    return byTicker;
+    return { byTicker, periods, ok: true };
   }catch(err){
     console.warn("Unvermietet-Übersicht konnte nicht geladen werden:", err);
-    return {};
+    return { byTicker: {}, periods: [], ok: false };
   }
 }
 
@@ -2140,6 +2175,79 @@ function setupAndienungTickerView(map){
   renderAndienungTicker(tickers[0]);
 }
 
+// ---- Wochen-Abdeckung: mind. ein Trade je Teilnehmer/Ticker und Kalenderwoche ----
+const WEEK_COVERAGE_START = new Date(2026, 7, 24); // Montag der KW 35/2026
+function mondayOf(d){
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+function isoWeekNumber(monday){
+  const thursday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3);
+  const jan1 = new Date(thursday.getFullYear(), 0, 1);
+  const dayOfYear = Math.round((thursday - jan1) / 86400000); // gerundet wegen Sommerzeit
+  return Math.floor(dayOfYear / 7) + 1;
+}
+
+function computeWeekCoverage(trades, periods, today){
+  const weeks = [];
+  const currentMonday = mondayOf(today);
+  for(let m = new Date(WEEK_COVERAGE_START); m <= currentMonday; m = new Date(m.getFullYear(), m.getMonth(), m.getDate() + 7)){
+    weeks.push({ monday: m, sunday: new Date(m.getFullYear(), m.getMonth(), m.getDate() + 6), kw: isoWeekNumber(m) });
+  }
+  // Mo/Di darf noch getradet werden: nur dann ist die laufende Woche "offen" statt "fehlend"
+  const stillOpen = today.getDay() === 1 || today.getDay() === 2;
+
+  const rows = PARTICIPANTS_DATA.map(p => {
+    const ticker = p.ticker.toUpperCase();
+    const own = trades.filter(t => t.ticker === ticker && t.dateIn);
+    const ownPeriods = periods.filter(u => u.ticker === ticker);
+    const cells = weeks.map(w => {
+      const anzahlTrades = own.filter(t => t.dateIn >= w.monday && t.dateIn <= w.sunday).length;
+      if(anzahlTrades > 0) return { status: "ok", info: anzahlTrades + (anzahlTrades === 1 ? " Trade" : " Trades") };
+      const unverm = ownPeriods.some(u => (!u.von || u.von <= w.sunday) && (!u.bis || u.bis >= w.monday));
+      if(unverm) return { status: "ok", info: "als nicht vermietet eingetragen" };
+      if(w.monday.getTime() === currentMonday.getTime() && stillOpen) return { status: "wait", info: "noch kein Trade – Mo/Di ist erlaubt" };
+      return { status: "miss", info: "kein Trade und nicht als unvermietet eingetragen" };
+    });
+    return { teilnehmer: p.teilnehmer, ticker, cells, luecken: cells.filter(c => c.status === "miss").length };
+  }).sort((a,b) => a.ticker.localeCompare(b.ticker));
+  return { weeks, rows };
+}
+
+function renderWeekCoverage(cov, unrentedOk){
+  const totalMiss = cov.rows.reduce((s,r) => s + r.luecken, 0);
+  const tickerMiss = cov.rows.filter(r => r.luecken > 0).length;
+  document.getElementById("weekCards").innerHTML = `
+    <div class="card"><div class="label">Teilnehmer-Positionen</div><div class="value">${cov.rows.length}</div></div>
+    <div class="card"><div class="label">Wochen geprüft</div><div class="value blue">${cov.weeks.length}</div></div>
+    <div class="card"><div class="label">Fehlende Wochen ⚡</div><div class="value" style="color:${totalMiss ? "var(--red)" : "var(--accent)"}">${totalMiss}</div></div>
+    <div class="card"><div class="label">Positionen mit Lücke</div><div class="value" style="color:${tickerMiss ? "var(--red)" : "var(--accent)"}">${tickerMiss}</div></div>
+  `;
+  document.getElementById("weekWarning").innerHTML = unrentedOk ? "" :
+    '<div class="status-banner error">Die Übersicht der Nicht-Vermietungen konnte nicht geladen werden – als unvermietet eingetragene Aktien werden daher ggf. fälschlich als fehlend (⚡) angezeigt.</div>';
+
+  const fmtD = d => d.toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" });
+  document.getElementById("tableHeadWochen").innerHTML = `<tr>
+    <th>Teilnehmer</th><th>Ticker</th>
+    ${cov.weeks.map(w => `<th class="wk" title="${fmtD(w.monday)} – ${fmtD(w.sunday)}">KW${w.kw}</th>`).join("")}
+    <th class="wk">Lücken</th></tr>`;
+
+  const pill = c => `<span class="wk-pill ${c.status}" title="${c.info}">${c.status === "ok" ? "OK" : c.status === "wait" ? "?" : "⚡"}</span>`;
+  document.getElementById("tableBodyWochen").innerHTML = cov.rows.map(r => `
+    <tr>
+      <td class="name">${r.teilnehmer}</td>
+      <td style="font-weight:700">${tickerLabel(r.ticker)}</td>
+      ${r.cells.map((c,i) => `<td class="wk" title="KW${cov.weeks[i].kw}: ${c.info}">${pill(c)}</td>`).join("")}
+      <td class="wk num" style="${r.luecken ? "color:var(--red);font-weight:700" : "color:var(--text-muted)"}">${r.luecken || "–"}</td>
+    </tr>`).join("");
+
+  const el = document.getElementById("weekBadgeTab");
+  el.textContent = totalMiss;
+  el.hidden = totalMiss === 0;
+  return totalMiss;
+}
+
 function renderCrossTab(rows){
   const tbody = document.getElementById("tableBodyCrosstab");
   const hasData = rows.some(r => r.weekly.n > 0 || r.monthly.n > 0);
@@ -2397,7 +2505,7 @@ function renderIssue7(list){
 async function init(){
   setStatus("Lade Live-Daten aus dem Google Sheet …", false);
   try{
-    const [sectorMap, monthlyData, holdings, overnightByTicker, allocationSummary, unrentedShares] = await Promise.all([
+    const [sectorMap, monthlyData, holdings, overnightByTicker, allocationSummary, unrented] = await Promise.all([
       loadSectorMap(),
       loadMonthlyWeekly(),
       loadHoldings(),
@@ -2425,7 +2533,7 @@ async function init(){
     const issue1 = computeMissingAssignmentStatus(monthlyData.trades, monthlyData.today);
     renderIssue1(issue1);
 
-    const issue2 = computeInsufficientCallCoverage(monthlyData.trades, monthlyData.today, unrentedShares);
+    const issue2 = computeInsufficientCallCoverage(monthlyData.trades, monthlyData.today, unrented.byTicker);
     renderIssue2(issue2);
 
     const issue3 = computeInvalidOrMissingDelta(monthlyData.trades);
@@ -2443,11 +2551,15 @@ async function init(){
     const issue7 = computeMissingType(monthlyData.trades);
     renderIssue7(issue7);
     const issueTotal = [issue1,issue2,issue3,issue4,issue5,issue6,issue7].reduce((sum,l) => sum + l.length, 0);
-    ["issueBadgeGroup","issueBadgeTab"].forEach(id => {
-      const el = document.getElementById(id);
-      el.textContent = issueTotal;
-      el.hidden = issueTotal === 0;
-    });
+    const issueBadge = document.getElementById("issueBadgeTab");
+    issueBadge.textContent = issueTotal;
+    issueBadge.hidden = issueTotal === 0;
+
+    const weekMiss = renderWeekCoverage(computeWeekCoverage(monthlyData.trades, unrented.periods, monthlyData.today), unrented.ok);
+    const qualityTotal = issueTotal + weekMiss;
+    const groupBadge = document.getElementById("issueBadgeGroup");
+    groupBadge.textContent = qualityTotal;
+    groupBadge.hidden = qualityTotal === 0;
     renderPremiumTab(premiumData);
 
     const cspByTicker = computeOpenCSPReserves(monthlyData.trades, monthlyData.today, sectorMap);
