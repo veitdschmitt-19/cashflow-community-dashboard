@@ -501,7 +501,7 @@
 
     <section>
       <h2>Trades pro Teilnehmer &amp; Woche <span class="tag">ab KW 35 / 2026</span></h2>
-      <p class="hint"><span class="wk-pill ok">OK</span> mindestens ein Trade (Date In in dieser Woche, Tab „Monthly &amp; Weekly") oder die Aktie war in dieser Woche als nicht vermietet eingetragen (Tab „Aktien im Cashflowcycle", Spalten AI–AM). <span class="wk-pill wait">?</span> aktuelle Woche, noch kein Trade – Trading ist montags oder dienstags erlaubt. <span class="wk-pill miss">⚡</span> kein Trade und nicht als unvermietet gekennzeichnet – hier fehlt etwas. Wochen laufen von Montag bis Sonntag (ISO-Kalenderwochen).</p>
+      <p class="hint"><span class="wk-pill ok">OK</span> mindestens ein Trade (Date In in dieser Woche, Tab „Monthly &amp; Weekly") oder die Aktie war in dieser Woche als nicht vermietet eingetragen (Tab „Aktien im Cashflowcycle", Spalten AI–AM). <span class="wk-pill wait">?</span> aktuelle Woche, noch kein Trade – hier kann noch getradet werden. <span class="wk-pill miss">⚡</span> vergangene Woche ohne Trade und ohne Kennzeichnung als unvermietet – hier fehlt etwas. Wochen laufen von Montag bis Sonntag (ISO-Kalenderwochen).</p>
       <div id="weekWarning"></div>
       <div class="wk-scroll">
         <table class="wk-table">
@@ -2195,8 +2195,8 @@ function computeWeekCoverage(trades, periods, today){
   for(let m = new Date(WEEK_COVERAGE_START); m <= currentMonday; m = new Date(m.getFullYear(), m.getMonth(), m.getDate() + 7)){
     weeks.push({ monday: m, sunday: new Date(m.getFullYear(), m.getMonth(), m.getDate() + 6), kw: isoWeekNumber(m) });
   }
-  // Mo/Di darf noch getradet werden: nur dann ist die laufende Woche "offen" statt "fehlend"
-  const stillOpen = today.getDay() === 1 || today.getDay() === 2;
+  // Nur in der laufenden Woche kann noch getradet werden: dort ist ein fehlender Trade "offen" (?),
+  // in vergangenen Wochen "fehlend" (⚡).
 
   const rows = PARTICIPANTS_DATA.map(p => {
     const ticker = p.ticker.toUpperCase();
@@ -2207,22 +2207,22 @@ function computeWeekCoverage(trades, periods, today){
       if(anzahlTrades > 0) return { status: "ok", info: anzahlTrades + (anzahlTrades === 1 ? " Trade" : " Trades") };
       const unverm = ownPeriods.some(u => (!u.von || u.von <= w.sunday) && (!u.bis || u.bis >= w.monday));
       if(unverm) return { status: "ok", info: "als nicht vermietet eingetragen" };
-      if(w.monday.getTime() === currentMonday.getTime() && stillOpen) return { status: "wait", info: "noch kein Trade – Mo/Di ist erlaubt" };
+      if(w.monday.getTime() === currentMonday.getTime()) return { status: "wait", info: "noch kein Trade in dieser Woche" };
       return { status: "miss", info: "kein Trade und nicht als unvermietet eingetragen" };
     });
-    return { teilnehmer: p.teilnehmer, ticker, cells, luecken: cells.filter(c => c.status === "miss").length };
+    return { teilnehmer: p.teilnehmer, ticker, cells };
   }).sort((a,b) => a.ticker.localeCompare(b.ticker));
   return { weeks, rows };
 }
 
 function renderWeekCoverage(cov, unrentedOk){
-  const totalMiss = cov.rows.reduce((s,r) => s + r.luecken, 0);
-  const tickerMiss = cov.rows.filter(r => r.luecken > 0).length;
+  const totalMiss = cov.rows.reduce((s,r) => s + r.cells.filter(c => c.status === "miss").length, 0);
+  const openNow = cov.rows.filter(r => r.cells[r.cells.length - 1].status === "wait").length;
   document.getElementById("weekCards").innerHTML = `
     <div class="card"><div class="label">Teilnehmer-Positionen</div><div class="value">${cov.rows.length}</div></div>
     <div class="card"><div class="label">Wochen geprüft</div><div class="value blue">${cov.weeks.length}</div></div>
-    <div class="card"><div class="label">Fehlende Wochen ⚡</div><div class="value" style="color:${totalMiss ? "var(--red)" : "var(--accent)"}">${totalMiss}</div></div>
-    <div class="card"><div class="label">Positionen mit Lücke</div><div class="value" style="color:${tickerMiss ? "var(--red)" : "var(--accent)"}">${tickerMiss}</div></div>
+    <div class="card"><div class="label">Fehlende Trades ⚡</div><div class="value" style="color:${totalMiss ? "var(--red)" : "var(--accent)"}">${totalMiss}</div></div>
+    <div class="card"><div class="label">Offene Trades in dieser Woche</div><div class="value" style="color:${openNow ? "#E8C547" : "var(--accent)"}">${openNow}</div></div>
   `;
   document.getElementById("weekWarning").innerHTML = unrentedOk ? "" :
     '<div class="status-banner error">Die Übersicht der Nicht-Vermietungen konnte nicht geladen werden – als unvermietet eingetragene Aktien werden daher ggf. fälschlich als fehlend (⚡) angezeigt.</div>';
@@ -2230,8 +2230,7 @@ function renderWeekCoverage(cov, unrentedOk){
   const fmtD = d => d.toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" });
   document.getElementById("tableHeadWochen").innerHTML = `<tr>
     <th>Teilnehmer</th><th>Ticker</th>
-    ${cov.weeks.map(w => `<th class="wk" title="${fmtD(w.monday)} – ${fmtD(w.sunday)}">KW${w.kw}</th>`).join("")}
-    <th class="wk">Lücken</th></tr>`;
+    ${cov.weeks.map(w => `<th class="wk" title="${fmtD(w.monday)} – ${fmtD(w.sunday)}">KW${w.kw}</th>`).join("")}</tr>`;
 
   const pill = c => `<span class="wk-pill ${c.status}" title="${c.info}">${c.status === "ok" ? "OK" : c.status === "wait" ? "?" : "⚡"}</span>`;
   document.getElementById("tableBodyWochen").innerHTML = cov.rows.map(r => `
@@ -2239,13 +2238,12 @@ function renderWeekCoverage(cov, unrentedOk){
       <td class="name">${r.teilnehmer}</td>
       <td style="font-weight:700">${tickerLabel(r.ticker)}</td>
       ${r.cells.map((c,i) => `<td class="wk" title="KW${cov.weeks[i].kw}: ${c.info}">${pill(c)}</td>`).join("")}
-      <td class="wk num" style="${r.luecken ? "color:var(--red);font-weight:700" : "color:var(--text-muted)"}">${r.luecken || "–"}</td>
     </tr>`).join("");
 
   const el = document.getElementById("weekBadgeTab");
-  el.textContent = totalMiss;
-  el.hidden = totalMiss === 0;
-  return totalMiss;
+  el.textContent = openNow;
+  el.hidden = openNow === 0;
+  return openNow;
 }
 
 function renderCrossTab(rows){
@@ -2555,8 +2553,8 @@ async function init(){
     issueBadge.textContent = issueTotal;
     issueBadge.hidden = issueTotal === 0;
 
-    const weekMiss = renderWeekCoverage(computeWeekCoverage(monthlyData.trades, unrented.periods, monthlyData.today), unrented.ok);
-    const qualityTotal = issueTotal + weekMiss;
+    const weekOpen = renderWeekCoverage(computeWeekCoverage(monthlyData.trades, unrented.periods, monthlyData.today), unrented.ok);
+    const qualityTotal = issueTotal + weekOpen;
     const groupBadge = document.getElementById("issueBadgeGroup");
     groupBadge.textContent = qualityTotal;
     groupBadge.hidden = qualityTotal === 0;
